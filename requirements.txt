@@ -1,0 +1,10 @@
+# YAFS Fog Computing Simulation Requirements
+# Python 3.12 recommended (YAFS 3.1 compatibility)
+
+# Core simulator
+# Install YAFS from source:
+# git clone --branch YAFS3.1 https://github.com/acsicuib/YAFS
+# cd YAFS && uv sync && uv pip install -e .
+
+# Dependencies
+pulp>=2.7  # For ILP optimization
