@@ -1,54 +1,87 @@
 """
 Topology configuration parameters for fog computing simulation.
-Based on YAFS 3.1 standards.
+Based on Pakpahan et al. (2025) [1] and YAFS 3.1 standards [2, 3].
 """
 import random
 import networkx as nx
 
-# CLOUD NODE ATTRIBUTES (experimentConfiguration: CLOUDCAPACITY, CLOUDSTORAGE, CLOUDSPEED)
+# ---------------------------------------------------------------------------
+# Network Parameters [1]
+# ---------------------------------------------------------------------------
+# Network Model
+NETWORK_MODEL = "Barabasi-Albert"
+# Number of Nodes — 100 Fog Nodes (+ Cloud node extra) [1]
+NUM_NODES = 100
+# Min Propagation Time (ms) — fixed 10 ms [1]
+PROPAGATION_TIME_MIN = 10
+PROPAGATION_TIME_MAX = 10
+# Min Bandwidth (bytes/ms) — 75000 [1]
+BANDWIDTH_MIN = 75000
+# Max Bandwidth (bytes/ms)
+BANDWIDTH_MAX = 75000
+
+# ---------------------------------------------------------------------------
+# Fog Device Resources (Heterogeneous) [1]
+# ---------------------------------------------------------------------------
+# Min RAM (MB RAM)
+MIN_RAM = 10
+# Max RAM (MB RAM)
+MAX_RAM = 25
+# Min IPT (Instructions/ms, IPT) — 100–1000 [Lera et al. 2019, Table I]
+MIN_IPT = 100
+# Max IPT (Instructions/ms, IPT)
+MAX_IPT = 1000
+# Min Storage (TB)
+STORAGE_MIN = 0.2
+# Max Storage (TB)
+STORAGE_MAX = 100.0
+
+# CLOUD NODE ATTRIBUTES
 CLOUD_ATTRS = {
-    "IPT": 10000,  # INSTR per MS (CLOUDSPEED)
-    "RAM": 9999999999999999,  # MB (CLOUDCAPACITY)
-    "TB": 99999,  # TB Storage (CLOUDSTORAGE)
+    "IPT": 10000,
+    "RAM": 99999,
+    "TB": 99999,
     "type": "CLOUD",
     "model": "cloud",
-    "WATT": 500.0,  # Power (e.g. watts); energy = time_service * WATT in YAFS
+    "WATT": 500.0,
 }
 
-# CLOUD GATEWAY (CFG) LINK ATTRIBUTES (CLOUDBW, CLOUDPR)
+# CLOUD GATEWAY (CFG) LINK ATTRIBUTES
 CLOUD_LINK_ATTRS = {
-    "BW": 125000,  # BYTES / MS --> 1000 Mbits/s (CLOUDBW)
-    "PR": 1,  # MS (CLOUDPR)
+    "BW": 75000,
+    "PR": 10,
 }
 
-# NETWORK GENERATION (func_NETWORKGENERATION: barabasi_albert n=100, m=2)
+# NETWORK GENERATION (Barabási–Albert scale-free) [3]
 NETWORK_CONFIG = {
     "generator": "barabasi_albert_graph",
-    "params": {"n": 100, "m": 2},
+    "params": {"n": NUM_NODES, "m": 2},
 }
 
-# FOG GATEWAY DISTRIBUTION (experimentConfiguration)
-PERCENTAGE_OF_GATEWAYS = 0.25  # FG - Fog Gateways (PERCENTATGEOFGATEWAYS)
-PERCENTAGE_OF_CLOUD_GATEWAYS = 0.05  # CFG - Cloud-Fog Gateways (PERCENTAGEOFCLOUDGATEWAYS)
+# ---------------------------------------------------------------------------
+# Role Node (Betweenness Centrality) [1]
+# ---------------------------------------------------------------------------
+# CFG (Cloud-Fog Gateway): 25% node dengan centrality TERTINGGI → cloud terhubung ke sini [1]
+PERCENTAGE_OF_CLOUD_GATEWAYS = 0.25
+# FG (Fog Gateway/Edge): 25% node dengan centrality TERENDAH → 25 gateway nodes [1]
+PERCENTAGE_OF_GATEWAYS = 0.25
 
-# FOG NODE ATTRIBUTES (func_NODERESOURECES, func_NODESPEED, func_NODESTORAGE)
 def get_fog_node_attrs(node_id):
-    """Generate random attributes for fog nodes. Type (FOG/FG/CFG) set in generator."""
+    """Generate random attributes for fog nodes (min/max resources, speed, storage)."""
     return {
         "id": node_id,
-        "IPT": random.randint(100, 1000),  # INTS / MS (func_NODESPEED)
-        "RAM": random.randint(10, 25),  # MB RAM (func_NODERESOURECES)
-        "TB": random.uniform(1, 10),  # TB (func_NODESTORAGE)
+        "IPT": random.randint(MIN_IPT, MAX_IPT),
+        "RAM": random.randint(MIN_RAM, MAX_RAM),
+        "TB": random.uniform(STORAGE_MIN, STORAGE_MAX),
         "model": "fog",
-        "WATT": random.uniform(5.0, 50.0),  # Power (watts); for energy consumption metric
+        "WATT": random.uniform(5.0, 50.0),
     }
 
-# FOG LINK ATTRIBUTES (func_PROPAGATIONTIME, func_BANDWITDH)
 def get_fog_link_attrs():
-    """Generate random attributes for fog links."""
+    """Generate fog link attributes (propagation_time and bandwidth in range)."""
     return {
-        "BW": random.randint(75000, 75000),  # BYTES / MS (func_BANDWITDH)
-        "PR": random.randint(5, 5),  # MS (func_PROPAGATIONTIME)
+        "PR": random.randint(PROPAGATION_TIME_MIN, PROPAGATION_TIME_MAX),
+        "BW": random.randint(BANDWIDTH_MIN, BANDWIDTH_MAX),
     }
 
 # TOPOLOGY OUTPUT

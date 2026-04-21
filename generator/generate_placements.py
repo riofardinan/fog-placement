@@ -1,11 +1,5 @@
 """
 Placement Generator for YAFS 3.1
-Generates allocation (placement) configurations for different algorithms:
-- CNPlacement (Complex Network based)
-- GAPlacement (Genetic Algorithm)
-- ILPPlacement (Integer Linear Programming)
-
-This is part of RUN 1: Generate placement allocations before simulation.
 """
 import json
 import sys
@@ -14,11 +8,20 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from placements.cn_placement import CNPlacement
+# Paper algorithms — Pakpahan et al. (2025)
+from placements.rdm_placement import RDMPlacement
+from placements.sm_placement import SMPlacement      # SortMatch
+from placements.ffha_placement import FFHAPlacement  # FirstFitHopAware
+from placements.hop2_placement import Hop2Placement
+from placements.hop3_placement import Hop3Placement
+from placements.fff_placement import FFFPlacement    # FrameworkFirstFit
 from placements.ga_placement import GAPlacement
+# Other algorithms
+from placements.gr_placement import GRPlacement      # Greedy
+from placements.cn_placement import CNPlacement
 from placements.ilp_placement import ILPPlacement
-from placements.rl_placement import RLPlacement
-from placements.gnn_placement import GNNPlacement
+from placements.pso_placement import PSOPlacement
+from placements.cngapso_placement import CNGAPSOPlacement
 
 
 def load_scenario():
@@ -82,34 +85,25 @@ def main():
     # Output directory
     scenarios_dir = Path(__file__).parent.parent / "scenarios"
     
-    # Generate CNPlacement allocation
-    print("\n" + "-" * 60)
-    cn_file = scenarios_dir / "allocDefinitionCN.json"
-    generate_placement(CNPlacement, topology, applications, users, cn_file)
-    
-    # Generate GAPlacement allocation
-    print("\n" + "-" * 60)
-    ga_file = scenarios_dir / "allocDefinitionGA.json"
-    generate_placement(GAPlacement, topology, applications, users, ga_file)
-    
-    # Generate ILPPlacement allocation
-    print("\n" + "-" * 60)
-    ilp_file = scenarios_dir / "allocDefinitionILP.json"
-    generate_placement(ILPPlacement, topology, applications, users, ilp_file)
-    
-    # Generate RLPlacement allocation
-    print("\n" + "-" * 60)
-    rl_file = scenarios_dir / "allocDefinitionRL.json"
-    generate_placement(RLPlacement, topology, applications, users, rl_file)
-    
-    # Generate GNNPlacement allocation
-    print("\n" + "-" * 60)
-    gnn_file = scenarios_dir / "allocDefinitionGNN.json"
-    generate_placement(GNNPlacement, topology, applications, users, gnn_file)
+    # Paper algorithms — Pakpahan et al. (2025)
+    for name, cls in [
+        ("RDM",  RDMPlacement),
+        ("SM",   SMPlacement),
+        ("FFHA", FFHAPlacement),
+        ("Hop2", Hop2Placement),
+        ("Hop3", Hop3Placement),
+        ("FFF",  FFFPlacement),
+        ("GA",   GAPlacement),
+    ]:
+        print("\n" + "-" * 60)
+        out = scenarios_dir / f"allocDefinition{name}.json"
+        generate_placement(cls, topology, applications, users, out)
     
     print("\n" + "=" * 60)
     print("Placement generation complete!")
     print("=" * 60)
+    
+    
     print("\nNext step: Run runner/run_simulation.py to execute simulations.")
 
 

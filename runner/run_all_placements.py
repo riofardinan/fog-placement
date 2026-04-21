@@ -7,8 +7,16 @@ from run_simulation import run_simulation
 
 def main():
     """Run simulations for all placement algorithms."""
-    placements = ["CNPlacement", "GAPlacement", "ILPPlacement", "RLPlacement", "GNNPlacement"]
-    duration = 1000000
+    placements = [
+        "CNPlacement",
+        "GAPlacement",
+        "ILPPlacement",
+        "GRPlacement",
+        "RDMPlacement",
+        "PSOPlacement",
+        "CNGAPSOPlacement",
+    ]
+    duration = 10000  # Simulation time [1]
     
     print("\n" + "=" * 70)
     print("Running ALL Placement Simulations")

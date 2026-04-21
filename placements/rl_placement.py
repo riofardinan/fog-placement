@@ -13,7 +13,7 @@ class RLPlacement(Placement):
     RL-based placement using Q-learning:
     - State: (service_id, available_resources_vector)
     - Action: select device for service
-    - Reward: -latency - α*capacity_violation - β*cost
+    - Reward: -latency (baseline-style: network delay + execution delay)
     - Policy: ε-greedy with decaying exploration
     
     Training phases:
@@ -21,14 +21,14 @@ class RLPlacement(Placement):
     2. Exploitation: use learned Q-values for optimal placement
     """
     
-    def __init__(self, episodes=50, alpha=0.1, gamma=0.95, epsilon=0.3, 
-                 epsilon_decay=0.95, epsilon_min=0.01, seed=None):
+    def __init__(self, episodes=200, alpha=0.1, gamma=0.9, epsilon=0.2,
+                 epsilon_decay=1.0, epsilon_min=0.2, seed=None):
         super().__init__()
         self.name = "RLPlacement"
         self.episodes = episodes
         self.alpha = alpha  # Learning rate
-        self.gamma = gamma  # Discount factor
-        self.epsilon = epsilon  # Exploration rate
+        self.gamma = gamma  # Discount factor (baseline 0.9)
+        self.epsilon = epsilon  # Exploration rate (baseline 0.2 fixed)
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
         self.seed = seed
@@ -36,11 +36,11 @@ class RLPlacement(Placement):
         # Q-table: Q[(state_hash, action)] = value
         self.Q = defaultdict(float)
         
-        # Reward weights
+        # Reward weights (baseline: latency-only objective)
         self.reward_weights = {
             "latency": -1.0,
-            "capacity_violation": -10.0,
-            "cost": -0.1
+            "capacity_violation": 0.0,
+            "cost": 0.0,
         }
     
     def generate_allocation(self, topology, applications, users):
@@ -76,7 +76,8 @@ class RLPlacement(Placement):
             G.add_node(entity["id"], **entity)
         
         for link in topology["link"]:
-            weight = link["PR"] + 2500000 / link["BW"]
+            # Baseline network weighting: PR + size/BW with size = 3_000_000 bytes
+            weight = link["PR"] + 3000000 / link["BW"]
             G.add_edge(link["s"], link["d"], weight=weight, **link)
         
         # Find cloud (YAFS: type CLOUD; or model cloud for backward compat)
@@ -84,7 +85,6 @@ class RLPlacement(Placement):
         for eid, edata in entities.items():
             if edata.get("type") == "CLOUD" or edata.get("model") == "cloud":
                 cloud_id = eid
-                break
                 break
         
         # Services list
@@ -115,6 +115,22 @@ class RLPlacement(Placement):
         
         # Precompute latencies
         latencies = self._precompute_latencies(G, app_gw, devices)
+        # Baseline: reward = -latency with SOURCE SERVICE only per (app, gateway)
+        app_source_sid = {}
+        for app in applications:
+            source_name = None
+            for msg in app.get("message", []):
+                if msg.get("s") == "None":
+                    source_name = msg.get("d")
+                    break
+            if source_name is None and app.get("module"):
+                source_name = app["module"][0]["name"]
+            if source_name is None:
+                continue
+            for sid, sname in enumerate(services):
+                if sname == source_name and service_info.get(sname, {}).get("app") == str(app["id"]):
+                    app_source_sid[str(app["id"])] = sid
+                    break
         
         env = {
             "G": G,
@@ -125,7 +141,8 @@ class RLPlacement(Placement):
             "devices": devices,
             "device_info": device_info,
             "app_gw": dict(app_gw),
-            "latencies": latencies
+            "latencies": latencies,
+            "app_source_sid": app_source_sid,
         }
         
         return env
@@ -164,32 +181,36 @@ class RLPlacement(Placement):
         
         return (service_idx, tuple(capacity_bins))
     
+    def _compute_latency_source_only(self, env, placement_by_sid):
+        """Baseline: avg over (app, gateway) of net_delay(gw, device[source_sid]) + 40000/IPT."""
+        latencies = env["latencies"]
+        app_gw = env["app_gw"]
+        app_source_sid = env.get("app_source_sid", {})
+        device_info = env["device_info"]
+        lat_vals = []
+        for app_id, gws in app_gw.items():
+            sid = app_source_sid.get(app_id) or app_source_sid.get(str(app_id))
+            if sid is None or sid >= len(placement_by_sid):
+                continue
+            dev = placement_by_sid[sid]
+            ipt = device_info.get(dev, {}).get("IPT", 100)
+            exec_delay = 40000.0 / max(float(ipt), 1.0)
+            for gw in gws:
+                net_delay = latencies.get((gw, dev), 1e9)
+                lat_vals.append(net_delay + exec_delay)
+        return (sum(lat_vals) / len(lat_vals)) if lat_vals else 1e9
+
     def _get_reward(self, env, placement, service_name, device):
         """
-        Calculate reward for placing service on device.
-        Reward = -latency - α*capacity_violation - β*cost
+        Baseline: reward = -latency where latency is from FULL placement
+        using SOURCE SERVICE only (per app, gateway).
         """
-        service_info = env["service_info"][service_name]
-        app_id = service_info["app"]
-        gws = env["app_gw"].get(app_id, [1])
-        
-        # Latency component
-        avg_latency = np.mean([env["latencies"].get((gw, device), 1e9) for gw in gws])
-        latency_reward = self.reward_weights["latency"] * (avg_latency / 1000.0)
-        
-        # Capacity violation component
-        device_cap = env["device_info"][device].get("RAM", 1e9)
-        device_usage = sum(env["service_info"][s]["ram"] for s, d in placement.items() if d == device)
-        device_usage += service_info["ram"]
-        capacity_violation = max(0, device_usage - device_cap)
-        capacity_reward = self.reward_weights["capacity_violation"] * capacity_violation
-        
-        # Cost component (prefer fog over cloud)
-        cost = 10 if device == env["cloud_id"] else 1
-        cost_reward = self.reward_weights["cost"] * cost
-        
-        total_reward = latency_reward + capacity_reward + cost_reward
-        return total_reward
+        placement_by_sid = [
+            placement.get(sname, device if sname == service_name else env["cloud_id"])
+            for sname in env["services"]
+        ]
+        avg_lat = self._compute_latency_source_only(env, placement_by_sid)
+        return -avg_lat
     
     def _train_q_learning(self, env):
         """Train Q-learning agent."""
@@ -284,6 +305,14 @@ class RLPlacement(Placement):
                 "module_name": service_name,
                 "app": str(env["service_info"][service_name]["app"]),
                 "id_resource": best_device
+            })
+        
+        # Baseline: mandatory cloud replica per service
+        for service_name in env["services"]:
+            allocation.append({
+                "module_name": service_name,
+                "app": str(env["service_info"][service_name]["app"]),
+                "id_resource": env["cloud_id"]
             })
         
         return allocation

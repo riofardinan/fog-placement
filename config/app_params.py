@@ -1,37 +1,56 @@
 """
 Application configuration parameters for fog computing simulation.
-Based on YAFS 3.1 standards.
+Sequential (linear chain) microservice DAG — Pakpahan et al. (2025) [1].
 """
 import random
 import networkx as nx
 
-# APPLICATION GENERATION
-TOTAL_NUMBER_OF_APPS = 20
+# ---------------------------------------------------------------------------
+# Application Profile (Sequential/Chain DAG) [1]
+# ---------------------------------------------------------------------------
+# Number of Applications — varied 5–70 in increments of 5 (14 problem instances) [1]
+NUM_APPLICATIONS = 5
+# Services Per Application Min [1]
+MODULES_PER_APP_MIN = 2
+# Services Per Application Max [1]
+MODULES_PER_APP_MAX = 8
+# Resource Units / RAM
+RAM_USAGE_MIN = 1
+# Resource Units / RAM
+RAM_USAGE_MAX = 6
 
-# Application DAG generation function
+# ---------------------------------------------------------------------------
+# Microservice Workload (Uniform Distribution) [2]
+# ---------------------------------------------------------------------------
+# Instructions Per Request (paper packet size affects transmission; instructions for exec)
+INSTRUCTIONS_PER_REQ_MIN = 20000
+INSTRUCTIONS_PER_REQ_MAX = 60000
+# Message Size (bytes) — Packet size 1.5 MB – 4.5 MB [1]
+MESSAGE_SIZE_MIN = 1500000
+MESSAGE_SIZE_MAX = 4500000
+# Deadline (ms)
+DEADLINE_MIN = 300
+DEADLINE_MAX = 50000
+
 def generate_app_dag():
-    """
-    Generate random DAG for application structure.
-    Uses GN graph (growing network) with random number of nodes.
-    """
-    num_services = random.randint(2, 10)  # From func_APPGENERATION: nx.gn_graph(random.randint(2,10))
-    return nx.gn_graph(num_services)
+    """Generate sequential linear chain DAG (microservice chain) [1]."""
+    num_modules = random.randint(MODULES_PER_APP_MIN, MODULES_PER_APP_MAX)
+    dag = nx.DiGraph()
+    dag.add_nodes_from(range(num_modules))
+    dag.add_edges_from((i, i + 1) for i in range(num_modules - 1))
+    return dag
 
-# SERVICE ATTRIBUTES (random distributions)
 def get_service_attrs():
-    """Generate random attributes for a service/module."""
+    """Generate random service attributes (instructions, message size, RAM) — uniform."""
     return {
-        "instructions": random.randint(20000, 60000),  # INSTR (func_SERVICEINSTR)
-        # Taking into account NODESPEED, this gives between 200-600 MS
-        "bytes": random.randint(1500000, 4500000),  # BYTES (func_SERVICEMESSAGESIZE)
-        # Taking account net bandwidth gives between 20-60 MS
-        "RAM": random.randint(1, 6)  # MB of RAM (func_SERVICERESOURCES)
+        "instructions": random.randint(INSTRUCTIONS_PER_REQ_MIN, INSTRUCTIONS_PER_REQ_MAX),
+        "bytes": random.randint(MESSAGE_SIZE_MIN, MESSAGE_SIZE_MAX),
+        "RAM": random.randint(RAM_USAGE_MIN, RAM_USAGE_MAX),
     }
 
-# APPLICATION DEADLINE
 def get_app_deadline():
-    """Generate random deadline for application."""
-    return random.randint(2600, 6600)  # MS (func_APPDEADLINE)
+    """Generate random deadline (uniform deadline_min–deadline_max ms)."""
+    return random.randint(DEADLINE_MIN, DEADLINE_MAX)
 
 # APPLICATION OUTPUT
 OUTPUT_FILE = "scenarios/appDefinition.json"

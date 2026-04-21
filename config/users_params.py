@@ -1,22 +1,19 @@
 """
 Users/IoT devices configuration parameters for fog computing simulation.
-Based on YAFS 3.1 standards.
+1 IoT source per application, placed at FG gateway nodes — Pakpahan et al. (2025) [1].
 """
 import random
 
-# USER REQUEST GENERATION
-def get_request_probability():
-    """
-    App popularity threshold.
-    Determines the probability that a device has requests associated with an app.
-    """
-    return random.random() / 4  # func_REQUESTPROB
+# ---------------------------------------------------------------------------
+# User/Traffic [1]
+# ---------------------------------------------------------------------------
+# request_interval (ms) — IoT request rate 200–1000 ms [1]
+REQUEST_INTERVAL_MIN = 200
+REQUEST_INTERVAL_MAX = 1000
 
 def get_user_request_rate():
-    """
-    User request rate (inter-arrival time).
-    """
-    return random.randint(200, 1000)  # MS (func_USERREQRAT)
+    """User request rate: inter-arrival time (uniform request_interval_min–max ms)."""
+    return random.randint(REQUEST_INTERVAL_MIN, REQUEST_INTERVAL_MAX)
 
 # USERS OUTPUT
 OUTPUT_FILE = "scenarios/usersDefinition.json"

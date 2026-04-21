@@ -21,9 +21,8 @@ from yafs.core import Sim
 from yafs.application import create_applications_from_json
 from yafs.topology import Topology
 from yafs.placement import JSONPlacement
-from yafs.path_routing import DeviceSpeedAwareRouting
-
 from runner.json_population import JSONPopulation
+from runner.path_routing import create_routing_strategy
 
 
 def load_scenario(scenarios_dir):
@@ -59,22 +58,26 @@ def load_placement(scenarios_dir, placement_name):
     return placement_data
 
 
-def run_simulation(placement_name, stop_time=20000):
+def run_simulation(placement_name, stop_time=20000, routing: str = "device_speed", results_dir=None):
     """
     Run simulation with specified placement algorithm.
-    
+
     Args:
-        placement_name: Name of placement (e.g., "CNPlacement", "GAPlacement", "ILPPlacement")
+        placement_name: Name of placement (e.g., "CNPlacement", "GAPlacement")
         stop_time: Simulation duration in time units
+        routing: Path routing strategy
+        results_dir: Override output directory (used by multi-instance runner)
     """
     print("=" * 60)
     print(f"Running YAFS Simulation: {placement_name}")
     print("=" * 60)
-    
+
     # Paths
     project_root = Path(__file__).parent.parent
     scenarios_dir = project_root / "scenarios"
-    results_dir = project_root / "results" / placement_name
+    if results_dir is None:
+        results_dir = project_root / "results" / placement_name
+    results_dir = Path(results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
     
     # Load scenario
@@ -107,8 +110,8 @@ def run_simulation(placement_name, stop_time=20000):
     
     # Create routing
     print("\nSetting up routing...")
-    selectorPath = DeviceSpeedAwareRouting()
-    print(f"  ✓ Routing configured")
+    selectorPath = create_routing_strategy(routing)
+    print(f"  ✓ Routing configured: {routing}")
     
     # Create simulator
     print("\nInitializing simulator...")
@@ -151,20 +154,35 @@ def main():
         "--placement",
         type=str,
         default="CNPlacement",
-        choices=["CNPlacement", "GAPlacement", "ILPPlacement", "RLPlacement", "GNNPlacement"],
-        help="Placement algorithm to use"
+        choices=[
+            "CNPlacement",
+            "GAPlacement",
+            "ILPPlacement",
+            "GRPlacement",
+            "RDMPlacement",
+            "PSOPlacement",
+            "CNGAPSOPlacement",
+        ],
+        help="Placement algorithm to use",
     )
     parser.add_argument(
         "--duration",
         type=int,
         default=20000,
-        help="Simulation duration in time units"
+        help="Simulation duration in time units",
+    )
+    parser.add_argument(
+        "--routing",
+        type=str,
+        default="device_speed",
+        choices=["device_speed", "weighted_latency", "load_aware"],
+        help="Path routing strategy to use",
     )
     
     args = parser.parse_args()
-    
+
     try:
-        run_simulation(args.placement, args.duration)
+        run_simulation(args.placement, args.duration, args.routing)
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback

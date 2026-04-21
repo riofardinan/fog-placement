@@ -24,6 +24,7 @@ class GNNPlacement(Placement):
     
     def __init__(self, hidden_dim=32, num_layers=2, epochs=30, 
                  learning_rate=0.01, residual_alpha=0.3, seed=None):
+        super().__init__()
         self.name = "GNNPlacement"
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers

@@ -1,0 +1,51 @@
+Istiliah-Istilah:
+DAG: Directed acyclic graph (Graf berarah yang tidak memiliki siklus)
+
+CG: Cloud Gateway
+CFG: Cloud Fog Gateway
+FOG
+FG: Fog Gateway 
+Client Request
+
+networkDefinition.json
+entity: daftar node di graf jaringan. 
+entity.id: identitas
+entity.IPT (ms): Instructions Per Time‑unit (kecepatan CPU node).
+entity.RAM (MB): kapasistas memori node
+entity.TB (terabyte): kapasistas storage
+entity.watt: konsumsi daya device
+link: daftar edge antar node.
+link.PR (ms): propagation time di link ini.
+link.BW (byte/ms): Bandwidth link
+s/d: source dan destination
+ 
+appDefinition.json (Setiap elemen = satu aplikasi)
+id, name: identitas.
+deadline (ms): target batas waktu end‑to‑end satu request untuk app ini.
+HwReqs: Requirement Hardware
+MaxReqs (count): batas maksimum jumlah request yang diizinkan
+MaxLatency (ms): salinan dari deadline
+module: node DAG (microservice) = isi app (beberapa proses seperti prepoc -> detect)
+module.id, name: identitas
+module.RAM (?): kebutuhan memori modul.
+message: edge DAG (aliran request antar modul)
+message.id, name: identitas
+message.s: source modul
+message.d: destination modul
+message.instructions: jumlah instruksi yang harus dieksekusi.
+message.byte: ukuran payload message.
+transmission: aturan “jika modul terima X, kirim Y”
+transmission.module: nama modul
+transmission.message_in: nama message yang masuk modul ini
+transmission.massage_out:nama message yang dikirim setelah selesai proses
+
+usersDefinition.json
+id_resource: ID node di network tempat user berada (pakai entity.id).
+app: string nama app (harus cocok dengan name di appDefinition.json).
+message: pesan awal yang user kirim ketika memakai app.
+lambda: rate kedatangan (seberapa sering user ini kirim request).
+
+allocDefinition*.json
+module_name: nama modul dari appDefinition
+app: dari nama app di appDefinition
+id_resource: id node fisik tempat modul dijalankan/ditempatkan, dari entity di networkDefinition

@@ -151,7 +151,8 @@ class ILPPlacement(Placement):
         for entity in topology["entity"]:
             G.add_node(entity["id"], **entity)
         for link in topology["link"]:
-            weight = link["PR"] + 2500000 / link["BW"]
+            # Baseline network weighting: PR + size/BW with size = 3_000_000 bytes
+            weight = link["PR"] + 3000000 / link["BW"]
             G.add_edge(link["s"], link["d"], weight=weight, **link)
         return G
     

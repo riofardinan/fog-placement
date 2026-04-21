@@ -101,7 +101,7 @@ def generate_topology(seed=42):
     return topology
 
 
-def generate_applications(seed=42):
+def generate_applications(seed=42, num_apps=None):
     """
     Generate applications aligned with experimentConfiguration and YAFS 3.1:
     - DAG edges reversed (experimentConfiguration); source = first in topo sort.
@@ -109,14 +109,16 @@ def generate_applications(seed=42):
     - One source message per app: "M.USER.APP.i" (YAFS / experimentConfiguration).
     - Edge message names: "i_(u-v)".
     - deadline + MaxLatency for compatibility.
+    - num_apps: override app_cfg.NUM_APPLICATIONS (used by multi-instance runner).
     """
     random.seed(seed)
-    
-    print(f"Generating {app_cfg.TOTAL_NUMBER_OF_APPS} applications...")
+
+    total = num_apps if num_apps is not None else app_cfg.NUM_APPLICATIONS
+    print(f"Generating {total} applications...")
     
     applications = []
-    
-    for app_id in range(app_cfg.TOTAL_NUMBER_OF_APPS):
+
+    for app_id in range(total):
         # Generate DAG (experimentConfiguration: func_APPGENERATION)
         dag = app_cfg.generate_app_dag()
         
@@ -228,69 +230,59 @@ def generate_applications(seed=42):
 
 def generate_users(topology, applications, seed=42):
     """
-    Generate user sources aligned with experimentConfiguration and YAFS docs:
-    - Only FG (fog gateway) nodes host users.
-    - Per-app then per-gateway loop; one request prob per app.
-    - At least one source per app.
-    - app and message as string (YAFS example: "0", "M.USER.APP.0").
+    Generate exactly 1 IoT source per application, placed at a random FG gateway node.
+    - Only FG (fog gateway) nodes host users [1].
+    - Request rate: 200–1000 ms inter-arrival [1].
     """
     random.seed(seed)
     
-    print("Generating users/sources...")
+    print(f"Generating users/sources (1 per app)...")
     
     users = {"sources": []}
     
-    # Only FG (fog gateway) nodes host users (experimentConfiguration: gatewaysDevices)
+    # Only FG (fog gateway) nodes host users
     gateway_nodes = [
         entity["id"] for entity in topology["entity"]
         if entity.get("type") == "FG"
     ]
     
     if not gateway_nodes:
-        # Fallback: use all fog nodes if no FG (e.g. tiny topology)
         gateway_nodes = [
             entity["id"] for entity in topology["entity"]
             if entity.get("type") != "CLOUD"
         ]
     
+    # Build per-app: message name and app_name for sources
+    app_info = []
     for app in applications:
-        app_id = app["id"]
-        app_name = str(app_id)
-        
-        # One request prob per app (experimentConfiguration)
-        prob_of_requested = user_cfg.get_request_probability()
-        at_least_one_allocated = False
-        
         source_messages = [msg for msg in app["message"] if msg["s"] == "None"]
         if not source_messages:
             continue
-        
-        # Use first source message name (must exist in app for app.get_message())
-        message_name = source_messages[0]["name"]
-        
-        for node_id in gateway_nodes:
-            if random.random() < prob_of_requested:
-                source = {
-                    "id_resource": node_id,
-                    "app": app_name,
-                    "message": message_name,
-                    "lambda": user_cfg.get_user_request_rate(),
-                }
-                users["sources"].append(source)
-                at_least_one_allocated = True
-        
-        # At least one source per app (experimentConfiguration)
-        if not at_least_one_allocated:
-            node_id = random.choice(gateway_nodes)
-            source = {
-                "id_resource": node_id,
-                "app": app_name,
-                "message": message_name,
-                "lambda": user_cfg.get_user_request_rate(),
-            }
-            users["sources"].append(source)
+        app_info.append({
+            "app_id": app["id"],
+            "app_name": str(app["id"]),
+            "message_name": source_messages[0]["name"],
+        })
     
-    print(f"  - Created {len(users['sources'])} user sources (FG gateways only, ≥1 per app)")
+    if not app_info:
+        print("  - No apps with source messages, skipping users")
+        return users
+    
+    # Per-app lambda [200–1000] ms — paper Table 1: "IoT request rate 200–1000" [1]
+    # seed % 100 keeps lambda distribution consistent across different app-count scenarios
+    random.seed(seed % 100)
+
+    # Exactly 1 source per app — round-robin across gateways for even load distribution [1]
+    for idx, info in enumerate(app_info):
+        node_id = gateway_nodes[idx % len(gateway_nodes)]
+        users["sources"].append({
+            "id_resource": node_id,
+            "app": info["app_name"],
+            "message": info["message_name"],
+            "lambda": user_cfg.get_user_request_rate(),
+        })
+    
+    print(f"  - Created {len(users['sources'])} user sources (1 per app, FG gateways only)")
     
     return users
 

@@ -30,6 +30,9 @@ from yafs.metrics import Metrics
 
 # Layer order (top to bottom): CLOUD, CFG, FOG, FG
 _LAYER_ORDER = ("CLOUD", "CFG", "FOG", "FG")
+# Energy model seperti exp/analyze_results.py: E = (service_time_ms/1000) * power_watt → Joule
+POWER_FOG = 5.0
+POWER_CLOUD = 100.0
 _LAYER_COLORS = {
     "CLOUD": "#2d5a27",
     "CFG": "#e67e22",
@@ -74,6 +77,78 @@ def load_topology(scenarios_dir=None):
     return t
 
 
+def load_app_deadlines(scenarios_dir=None):
+    """Load app deadlines from appDefinition.json."""
+    if scenarios_dir is None:
+        scenarios_dir = _project_root / "scenarios"
+    app_file = scenarios_dir / "appDefinition.json"
+    deadlines = {}
+    if not app_file.exists():
+        return deadlines
+    with open(app_file, "r") as f:
+        data = json.load(f)
+        for app in data:
+            try:
+                app_id = int(app.get("id"))
+                deadlines[app_id] = float(app.get("deadline", app.get("MaxLatency", 0)))
+            except (TypeError, ValueError):
+                continue
+    return deadlines
+
+
+def load_cloud_id(scenarios_dir=None):
+    """Infer cloud node id from networkDefinition.json (fallback to 100)."""
+    if scenarios_dir is None:
+        scenarios_dir = _project_root / "scenarios"
+    net_file = scenarios_dir / "networkDefinition.json"
+    default_cloud_id = 100
+    if not net_file.exists():
+        return default_cloud_id
+    try:
+        with open(net_file, "r") as f:
+            data = json.load(f)
+        for ent in data.get("entity", []):
+            if ent.get("type") == "CLOUD":
+                return int(ent.get("id"))
+    except Exception:
+        pass
+    return default_cloud_id
+
+
+def load_planned_placement(placement_name, scenarios_dir=None, cloud_id=100):
+    """
+    Load planned placement per module from allocDefinition*.json.
+
+    Uses same semantics as exp/analyze_results.py:
+    - Prefer fog placement over cloud if both exist.
+    """
+    if scenarios_dir is None:
+        scenarios_dir = _project_root / "scenarios"
+    alloc_name = placement_name.replace("Placement", "")
+    alloc_file = Path(scenarios_dir) / f"allocDefinition{alloc_name}.json"
+    planned = {}
+    if not alloc_file.exists():
+        return planned
+    try:
+        with open(alloc_file, "r") as f:
+            data = json.load(f)
+    except Exception:
+        return planned
+
+    for item in data.get("initialAllocation", []):
+        mod = item.get("module_name")
+        try:
+            res = int(item.get("id_resource"))
+        except (TypeError, ValueError):
+            continue
+        if mod not in planned:
+            planned[mod] = res
+        elif planned[mod] == cloud_id and res != cloud_id:
+            # prefer non-cloud if we have both
+            planned[mod] = res
+    return planned
+
+
 def load_results(placement_name):
     """Load simulation results for a placement algorithm. Returns (df_trace, df_link, result_path)."""
     results_dir = _project_root / "results" / placement_name
@@ -88,7 +163,15 @@ def load_results(placement_name):
     return df_trace, df_link, result_path
 
 
-def analyze_placement(placement_name, result_path, topology, total_time=None):
+def analyze_placement(
+    placement_name,
+    result_path,
+    topology,
+    total_time=None,
+    deadlines=None,
+    planned_placement=None,
+    cloud_id=None,
+):
     """
     Analyze results using YAFS Stats.
     Returns metrics for: Service Latency, Energy Consumption, Resource Utilization, Execution Time.
@@ -107,43 +190,111 @@ def analyze_placement(placement_name, result_path, topology, total_time=None):
         total_time = float(stats.df["time_out"].max()) if len(stats.df) else 1.0
 
     stats.compute_times_df()
+    df = stats.df
 
-    # --- Service Latency (YAFS: time_response = time_out - time_reception; time_total_response) ---
-    avg_service_latency = float(stats.df["time_response"].mean())
-    avg_total_response = float(stats.df["time_total_response"].mean())
-    max_service_latency = float(stats.df["time_response"].max())
+    # --- Time metrics in YAFS (service & total response) ---
+    avg_service_latency = float(df["time_response"].mean())
+    avg_total_response = float(df["time_total_response"].mean())
+    max_service_latency = float(df["time_response"].max())
+
+    # --- Derive network latency, wait, and full response (exp/analyze_results.py style) ---
+    if len(df):
+        df["net_lat"] = df["time_reception"] - df["time_emit"]
+        df["wait"] = df["time_in"] - df["time_reception"]
+        df["resp"] = df["time_out"] - df["time_emit"]
+        AVGLAT = float(df["net_lat"].mean())
+        AVGWAIT = float(df["wait"].mean())
+        AVGRESP = float(df["resp"].mean())
+    else:
+        AVGLAT = AVGWAIT = AVGRESP = 0.0
 
     # --- Execution Time (YAFS: time_service = time_out - time_in) ---
-    avg_execution_time = float(stats.df["time_service"].mean())
-    total_execution_time = float(stats.df["time_service"].sum())
+    avg_execution_time = float(df["time_service"].mean())
+    total_execution_time = float(df["time_service"].sum())
 
     # --- Resource Utilization (per-node: sum(time_service) / total_time) ---
-    node_service_time = stats.df.groupby("TOPO.dst")["time_service"].sum()
+    node_service_time = df.groupby("TOPO.dst")["time_service"].sum()
     node_utilization = node_service_time / total_time
     avg_utilization = float(node_utilization.mean()) if len(node_utilization) else 0.0
     max_utilization = float(node_utilization.max()) if len(node_utilization) else 0.0
     nodes_used = len(node_utilization)
     load_balance_std = float(node_service_time.std()) if len(node_service_time) > 1 else 0.0
 
-    # --- Energy Consumption (YAFS Stats.get_watt; requires topology with WATT, model) ---
+    # --- Energy Consumption (exp/analyze_results.py: (service_time/1000)*power per node) ---
     total_energy = np.nan
-    if topology is not None:
-        try:
-            watt_results = stats.get_watt(total_time, topology, by=Metrics.WATT_SERVICE)
-            total_energy = sum(v["watt"] for v in watt_results.values())
-        except (KeyError, TypeError) as e:
-            total_energy = np.nan  # topology missing WATT/model or old scenario
+    if cloud_id is not None and len(df):
+        total_energy = 0.0
+        for node_id, group in df.groupby("TOPO.dst"):
+            service_time_ms = group["time_service"].sum()
+            power = POWER_CLOUD if int(node_id) == int(cloud_id) else POWER_FOG
+            total_energy += (service_time_ms / 1000.0) * power
 
     # --- Network (from link df) ---
     total_bytes = float(stats.df_link["size"].sum())
     avg_link_latency = float(stats.df_link["latency"].mean())
     avg_buffer = float(stats.df_link["buffer"].mean())
 
+    # --- MISMATCH & module-level fog/cloud stats (exp/analyze_results.py style) ---
+    MISMATCH = 0
+    MISMATCH_PCT = 0.0
+    FOG_PURE = CLOUD_INV = 0
+    FOG_PCT = CLOUD_PCT = 0.0
+    if planned_placement and cloud_id is not None and len(df):
+        def _check_mismatch(row):
+            mod = row.get("module")
+            try:
+                actual = int(row.get("TOPO.dst"))
+            except (TypeError, ValueError):
+                return 0
+            planned = int(planned_placement.get(mod, cloud_id))
+            return 1 if planned != cloud_id and actual == cloud_id else 0
+
+        df["is_mismatch"] = df.apply(_check_mismatch, axis=1)
+        MISMATCH = int(df["is_mismatch"].sum())
+        MISMATCH_PCT = (MISMATCH / len(df)) * 100.0 if len(df) else 0.0
+
+        mod_locs = df.groupby("module")["TOPO.dst"].unique()
+        pure_fog = 0
+        cloud_inv = 0
+        for locs in mod_locs.values:
+            if cloud_id in locs:
+                cloud_inv += 1
+            else:
+                pure_fog += 1
+        MOD_count = df["module"].nunique()
+        FOG_PURE = pure_fog
+        CLOUD_INV = cloud_inv
+        FOG_PCT = (pure_fog / MOD_count) * 100.0 if MOD_count else 0.0
+        CLOUD_PCT = (cloud_inv / MOD_count) * 100.0 if MOD_count else 0.0
+
+    # --- SLA Violation (SLAV %) ---
+    SLAV_PCT = 0.0
+    if deadlines and len(df):
+        def _check_slav(row):
+            try:
+                app_id = int(row.get("app"))
+            except (TypeError, ValueError):
+                return 0
+            d = float(deadlines.get(app_id, 999999.0))
+            return 1 if row["resp"] > d else 0
+
+        SLAV_PCT = (df.apply(_check_slav, axis=1).sum() / len(df)) * 100.0
+
+    # APP, MOD (exp-style: unique app and module count at runtime)
+    APP = int(df["app"].nunique()) if "app" in df.columns and len(df) else 0
+    MOD = int(df["module"].nunique()) if "module" in df.columns and len(df) else 0
+
     metrics = {
         "placement": placement_name,
         "total_requests": len(stats.df),
         "total_time": total_time,
-        # Service Latency
+        "APP": APP,
+        "MOD": MOD,
+        # Network / wait / response — satuan: ms (exp-style)
+        "AVGLAT": AVGLAT,
+        "AVGWAIT": AVGWAIT,
+        "AVGRESP": AVGRESP,
+        # Service Latency (YAFS, for internal/plot use)
         "avg_service_latency": avg_service_latency,
         "avg_total_response": avg_total_response,
         "max_service_latency": max_service_latency,
@@ -162,12 +313,29 @@ def analyze_placement(placement_name, result_path, topology, total_time=None):
         "avg_link_latency": avg_link_latency,
         "avg_buffer": avg_buffer,
         "max_buffer": float(stats.df_link["buffer"].max()),
+        # Mismatch / module-level fog-cloud stats
+        "MISMATCH": MISMATCH,
+        "MISMATCH_PCT": MISMATCH_PCT,
+        "FOG_PURE": FOG_PURE,
+        "FOG_PCT": FOG_PCT,
+        "CLOUD_INV": CLOUD_INV,
+        "CLOUD_PCT": CLOUD_PCT,
+        # SLA violation
+        "SLAV_PCT": SLAV_PCT,
     }
     return metrics
 
 
 def compare_placements(
-    placements=("CNPlacement", "GAPlacement", "ILPPlacement", "RLPlacement", "GNNPlacement"),
+    placements=(
+        "CNPlacement",
+        "GAPlacement",
+        "ILPPlacement",
+        "GRPlacement",
+        "RDMPlacement",
+        "PSOPlacement",
+        "CNGAPSOPlacement",
+    ),
     duration=None,
     scenarios_dir=None,
 ):
@@ -182,6 +350,10 @@ def compare_placements(
     else:
         print("  ✓ Topology loaded (for energy metric)")
 
+    scenarios_dir = _project_root / "scenarios" if scenarios_dir is None else scenarios_dir
+    deadlines = load_app_deadlines(scenarios_dir)
+    cloud_id = load_cloud_id(scenarios_dir)
+
     results = []
     for placement in placements:
         print(f"Loading {placement}...")
@@ -192,7 +364,16 @@ def compare_placements(
         total_time = duration
         if total_time is None and df_trace is not None:
             total_time = float(df_trace["time_out"].max()) if len(df_trace) else None
-        metrics = analyze_placement(placement, result_path, topology, total_time)
+        planned = load_planned_placement(placement, scenarios_dir, cloud_id=cloud_id)
+        metrics = analyze_placement(
+            placement,
+            result_path,
+            topology,
+            total_time,
+            deadlines=deadlines,
+            planned_placement=planned,
+            cloud_id=cloud_id,
+        )
         if metrics is not None:
             results.append(metrics)
             print(f"  ✓ {placement}: {metrics['total_requests']} requests, total_time={metrics['total_time']:.0f}")
@@ -205,49 +386,25 @@ def compare_placements(
 
     df_results = pd.DataFrame(results)
 
+    # Tabel utama (exp-style): hanya metrik dengan satuan seperti di exp/analyze_results.py
     print("\n" + "=" * 70)
-    print("1. SERVICE LATENCY (lower is better)")
+    print("HASIL PERBANDINGAN (satuan: AVGLAT/AVGWAIT/AVGRESP ms, SLAV %, ENERGY Joule)")
     print("-" * 70)
-    cols = ["placement", "avg_service_latency", "avg_total_response", "max_service_latency"]
-    print(df_results[cols].to_string(index=False))
+    display = df_results[["placement", "APP", "MOD", "FOG_PURE", "CLOUD_INV", "MISMATCH", "AVGLAT", "AVGWAIT", "AVGRESP", "SLAV_PCT", "total_energy"]].copy()
+    display.columns = ["placement", "APP", "MOD", "FOG (Pure)", "CLOUD (Inv.)", "MISMATCH", "AVGLAT (ms)", "AVGWAIT (ms)", "AVGRESP (ms)", "SLAV %", "ENERGY (Joule)"]
+    print(display.to_string(index=False))
 
-    print("\n2. EXECUTION TIME (lower is better)")
-    print("-" * 70)
-    cols = ["placement", "avg_execution_time", "total_execution_time"]
-    print(df_results[cols].to_string(index=False))
-
-    print("\n3. RESOURCE UTILIZATION")
-    print("-" * 70)
-    cols = ["placement", "nodes_used", "avg_utilization", "max_utilization", "load_balance_std"]
-    print(df_results[cols].to_string(index=False))
-
-    print("\n4. ENERGY CONSUMPTION (lower is better)")
-    print("-" * 70)
-    cols = ["placement", "total_energy"]
-    print(df_results[cols].to_string(index=False))
-
-    print("\n5. NETWORK")
-    print("-" * 70)
-    cols = ["placement", "total_bytes_transmitted", "avg_link_latency", "avg_buffer"]
-    print(df_results[cols].to_string(index=False))
-
-    print("\n6. BEST PERFORMER PER METRIC")
-    print("-" * 70)
-    valid = df_results["avg_service_latency"].notna()
-    if valid.any():
-        best = df_results.loc[df_results.loc[valid, "avg_service_latency"].idxmin(), "placement"]
-        print(f"  • Lowest Service Latency: {best}")
-    valid = df_results["avg_execution_time"].notna()
-    if valid.any():
-        best = df_results.loc[df_results.loc[valid, "avg_execution_time"].idxmin(), "placement"]
-        print(f"  • Lowest Execution Time: {best}")
-    valid = df_results["load_balance_std"].notna()
-    if valid.any():
-        best = df_results.loc[df_results.loc[valid, "load_balance_std"].idxmin(), "placement"]
-        print(f"  • Best Load Balance: {best}")
-    if df_results["total_energy"].notna().any():
-        best = df_results.loc[df_results["total_energy"].idxmin(), "placement"]
-        print(f"  • Lowest Energy: {best}")
+    print("\n📘 KETERANGAN PARAMETER:")
+    print("APP            : Jumlah aplikasi unik yang dieksekusi dalam simulasi.")
+    print("MOD            : Jumlah modul/service unik yang muncul pada runtime.")
+    print("FOG (Pure)     : Modul yang seluruh eksekusinya hanya terjadi di Fog (tanpa Cloud).")
+    print("CLOUD (Inv.)   : Modul yang pernah dieksekusi di Cloud minimal satu kali.")
+    print("MISMATCH       : Request yang direncanakan di Fog namun dieksekusi di Cloud.")
+    print("AVGLAT (ms)    : Rata-rata latensi jaringan (time_reception - time_emit).")
+    print("AVGWAIT (ms)   : Rata-rata waktu tunggu dalam antrean komputasi.")
+    print("AVGRESP (ms)   : Rata-rata waktu respon total (time_out - time_emit).")
+    print("SLAV %         : Persentase request yang melanggar deadline SLA.")
+    print("ENERGY (Joule) : Total energi yang dikonsumsi selama simulasi.")
 
     output_dir = _project_root / "analysis"
     output_dir.mkdir(exist_ok=True)
@@ -514,7 +671,7 @@ def generate_plots(df_results):
     plt.figure(figsize=(10, 6))
     plt.bar(df_results["placement"], energy)
     plt.xlabel("Placement Algorithm")
-    plt.ylabel("Total Energy (WATT·time)")
+    plt.ylabel("Total Energy (Joule)")
     plt.title("Energy Consumption Comparison")
     plt.xticks(rotation=45)
     plt.tight_layout()
@@ -534,7 +691,15 @@ def generate_plots(df_results):
 
 
 def main():
-    placements = ["CNPlacement", "GAPlacement", "ILPPlacement", "RLPlacement", "GNNPlacement"]
+    placements = [
+        "CNPlacement",
+        "GAPlacement",
+        "ILPPlacement",
+        "GRPlacement",
+        "RDMPlacement",
+        "PSOPlacement",
+        "CNGAPSOPlacement",
+    ]
     duration = None
     args = sys.argv[1:]
     if args and args[0].isdigit():
