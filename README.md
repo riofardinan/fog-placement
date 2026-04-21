@@ -79,13 +79,6 @@ pip install -e .
 cd ../FOG
 ```
 
-**Patch wajib** — nonaktifkan link-queue serialization di YAFS 3.1 agar setara dengan YAFS 0.3.0 (versi yang dipakai paper). Edit `YAFS/src/yafs/core.py`, cari bagian `shift_time` dan ubah menjadi:
-
-```python
-# No link queue serialization — matches YAFS 0.3.0 behaviour (paper)
-shift_time = 0.0
-```
-
 ### 3. Install dependensi Python
 
 ```bash
@@ -216,37 +209,6 @@ Wait Time     = sum(time_in - time_reception)
 ### `sim_trace_link.csv`
 
 Metrics per network link (latency, message size, buffer utilization).
-
----
-
-## Algoritma Placement
-
-
-| Kode   | Nama              | Deskripsi Singkat                                       |
-| ------ | ----------------- | ------------------------------------------------------- |
-| `RDM`  | Random            | Pilih node random, coba MAX_ATTEMPTS=100 kali           |
-| `SM`   | Sort and Match    | Sort node by IPT desc, first-fit RAM                    |
-| `FFHA` | FirstFitHopAware  | Pack ke node yang sama, BFS hop berikutnya jika penuh   |
-| `Hop2` | Hop2              | Modul pertama di gateway, berikutnya node berbeda (BFS) |
-| `Hop3` | Hop3              | Modul pertama 1 hop dari gateway, berikutnya BFS        |
-| `FFF`  | FrameworkFirstFit | FFHA dengan adjacency hierarkis (FG→FOG→CFG→Cloud)      |
-| `GA`   | Genetic Algorithm | Optimasi hop chain; pop=100, gen=250, mut=0.3           |
-
-
----
-
-## Catatan Perbedaan dengan Paper
-
-
-| Aspek         | Paper (YAFS 0.3.0)    | Simulasi ini (YAFS 3.1)                   |
-| ------------- | --------------------- | ----------------------------------------- |
-| Link queue    | Tidak ada serialisasi | Dinonaktifkan (`shift_time=0`)            |
-| Topology seed | Tidak dipublikasikan  | `TOPOLOGY_SEED=42` di `run_experiment.py` |
-| Lambda seed   | Tidak dipublikasikan  | Seeded per `run % 100`                    |
-| IPT           | 1.500–3.000 (Table 1) | 100–1.000 (dikonfirmasi dari Fig. 9)      |
-
-
-Karena seed topologi dan lambda tidak diketahui, beberapa algoritma (SM, Hop2, Hop3) masih menunjukkan selisih ~10–30% dari nilai paper. FFHA, FFF, dan GA sudah dalam toleransi <2%.
 
 ---
 
