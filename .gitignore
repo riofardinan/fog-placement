@@ -21,6 +21,7 @@ wheels/
 *.egg
 
 exp/
+exp2/
 paper/
 
 # Virtual environments

@@ -7,7 +7,8 @@ Flow:
     matching the paper's single network infrastructure.
   - Applications and users are re-generated per (num_apps, run) for variability.
 
-Results saved to: results/apps_{N}/run_{R}/{algorithm}/
+Results saved to: results/apps_{N}/run_{R}/{algorithm}/.
+Also writes results/apps_{N}/run_{R}/appDefinition.json (snapshot for analysis/SLAV).
 """
 import json
 import sys
@@ -19,33 +20,49 @@ if str(_project_root) not in sys.path:
 
 from generator.generate_scenario import generate_topology, generate_applications, generate_users
 from generator.generate_placements import generate_placement
-from placements.rdm_placement import RDMPlacement
-from placements.sm_placement import SMPlacement      # SortMatch
-from placements.ffha_placement import FFHAPlacement  # FirstFitHopAware
-from placements.hop2_placement import Hop2Placement
-from placements.hop3_placement import Hop3Placement
-from placements.fff_placement import FFFPlacement    # FrameworkFirstFit
-from placements.ga_placement import GAPlacement
+from placements.heuristic.rdm_placement import RDMPlacement
+from placements.heuristic.sm_placement import SMPlacement      # SortMatch
+from placements.heuristic.ffha_placement import FFHAPlacement  # FirstFitHopAware
+from placements.heuristic.hop2_placement import Hop2Placement
+from placements.heuristic.hop3_placement import Hop3Placement
+from placements.heuristic.fff_placement import FFFPlacement    # FrameworkFirstFit
+from placements.metaheuristic.ga_placement import GAPlacement
+from placements.combinatorial.aco_placement import ACOPlacement
+from placements.combinatorial.sa_placement import SAPlacement
+from placements.combinatorial.ts_placement import TSPlacement
+from placements.metaheuristic.pso_placement import PSOPlacement
+from placements.metaheuristic.gwo_placement import GWOPlacement
+from placements.metaheuristic.woa_placement import WOAPlacement
+from placements.multiobjective.nsga2_placement import NSGAIIPlacement
+from placements.multiobjective.moead_placement import MOEADPlacement
 from runner.run_simulation import run_simulation
 
 # ---------------------------------------------------------------------------
 # Experiment Parameters — Pakpahan et al. (2025) [1]
 # ---------------------------------------------------------------------------
-NUM_APPS_RANGE = list(range(5, 75, 5))   # [5, 10, 15, ..., 70] — 14 instances
+NUM_APPS_RANGE = list(range(70, 1501, 65))  # [5, 10, 15, ..., 70] — 14 instances
 RUNS_PER_INSTANCE = 10
 SIM_DURATION = 10000
 
-TOPOLOGY_SEED = 42
+TOPOLOGY_SEED = 8
 
-# 7 algorithms from the paper
+# Algorithms
 PLACEMENTS = [
-    ("RDM",  RDMPlacement),
+    # ("RDM",  RDMPlacement),
     ("SM",   SMPlacement),
     ("FFHA", FFHAPlacement),
-    ("Hop2", Hop2Placement),
-    ("Hop3", Hop3Placement),
-    ("FFF",  FFFPlacement),
+    # ("Hop2", Hop2Placement),
+    # ("Hop3", Hop3Placement),
+    # ("FFF",  FFFPlacement),
     ("GA",   GAPlacement),
+    ("ACO",   ACOPlacement),
+    ("SA",    SAPlacement),
+    ("TS",    TSPlacement),
+    ("PSO",   PSOPlacement),
+    ("GWO",   GWOPlacement),
+    ("WOA",   WOAPlacement),
+    ("NSGA2", NSGAIIPlacement),
+    ("MOEAD", MOEADPlacement),
 ]
 
 
@@ -59,6 +76,11 @@ def run_instance(num_apps, run, scenarios_dir, topology):
 
     applications = generate_applications(seed=seed, num_apps=num_apps)
     with open(scenarios_dir / "appDefinition.json", "w") as f:
+        json.dump(applications, f, indent=2)
+
+    run_root = _project_root / "results" / f"apps_{num_apps}" / f"run_{run}"
+    run_root.mkdir(parents=True, exist_ok=True)
+    with open(run_root / "appDefinition.json", "w") as f:
         json.dump(applications, f, indent=2)
 
     users = generate_users(topology, applications, seed=seed)

@@ -9,19 +9,26 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 # Paper algorithms — Pakpahan et al. (2025)
-from placements.rdm_placement import RDMPlacement
-from placements.sm_placement import SMPlacement      # SortMatch
-from placements.ffha_placement import FFHAPlacement  # FirstFitHopAware
-from placements.hop2_placement import Hop2Placement
-from placements.hop3_placement import Hop3Placement
-from placements.fff_placement import FFFPlacement    # FrameworkFirstFit
-from placements.ga_placement import GAPlacement
+from placements.heuristic.rdm_placement import RDMPlacement
+from placements.heuristic.sm_placement import SMPlacement      # SortMatch
+from placements.heuristic.ffha_placement import FFHAPlacement  # FirstFitHopAware
+from placements.heuristic.hop2_placement import Hop2Placement
+from placements.heuristic.hop3_placement import Hop3Placement
+from placements.heuristic.fff_placement import FFFPlacement    # FrameworkFirstFit
+from placements.metaheuristic.ga_placement import GAPlacement
 # Other algorithms
-from placements.gr_placement import GRPlacement      # Greedy
-from placements.cn_placement import CNPlacement
-from placements.ilp_placement import ILPPlacement
-from placements.pso_placement import PSOPlacement
-from placements.cngapso_placement import CNGAPSOPlacement
+from placements.experimental.gr_placement import GRPlacement      # Greedy
+from placements.experimental.cn_placement import CNPlacement
+from placements.combinatorial.ilp_placement import ILPPlacement
+from placements.metaheuristic.pso_placement import PSOPlacement
+from placements.metaheuristic.cngapso_placement import CNGAPSOPlacement
+from placements.combinatorial.aco_placement import ACOPlacement
+from placements.combinatorial.sa_placement import SAPlacement
+from placements.combinatorial.ts_placement import TSPlacement
+from placements.metaheuristic.gwo_placement import GWOPlacement
+from placements.metaheuristic.woa_placement import WOAPlacement
+from placements.multiobjective.nsga2_placement import NSGAIIPlacement
+from placements.multiobjective.moead_placement import MOEADPlacement
 
 
 def load_scenario():
@@ -41,16 +48,6 @@ def load_scenario():
 
 
 def generate_placement(placement_class, topology, applications, users, output_file):
-    """
-    Generate allocation using a placement algorithm.
-    
-    Args:
-        placement_class: Placement algorithm class
-        topology: Topology dict
-        applications: Applications list
-        users: Users dict
-        output_file: Output JSON file path
-    """
     print(f"Running {placement_class.__name__}...")
     
     # Create placement instance
@@ -66,15 +63,10 @@ def generate_placement(placement_class, topology, applications, users, output_fi
         json.dump(alloc_dict, f, indent=2)
     
     print(f"  - Generated {len(allocation)} module allocations")
-    print(f"✓ Saved: {output_file}")
+    print(f"Saved: {output_file}")
 
 
-def main():
-    """Main placement generator function."""
-    print("=" * 60)
-    print("YAFS Placement Generator")
-    print("=" * 60)
-    
+def main():    
     # Load scenario
     print("\nLoading scenario files...")
     topology, applications, users = load_scenario()
@@ -94,6 +86,14 @@ def main():
         ("Hop3", Hop3Placement),
         ("FFF",  FFFPlacement),
         ("GA",   GAPlacement),
+        # Additional algorithms (lightweight implementations)
+        ("ACO",   ACOPlacement),
+        ("SA",    SAPlacement),
+        ("TS",    TSPlacement),
+        ("GWO",   GWOPlacement),
+        ("WOA",   WOAPlacement),
+        ("NSGA2", NSGAIIPlacement),
+        ("MOEAD", MOEADPlacement),
     ]:
         print("\n" + "-" * 60)
         out = scenarios_dir / f"allocDefinition{name}.json"

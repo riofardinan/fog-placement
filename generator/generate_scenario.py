@@ -20,28 +20,15 @@ from config import users_params as user_cfg
 
 
 def generate_topology(seed=42):
-    """
-    Generate fog computing topology aligned with experimentConfiguration:
-    - Fog nodes 0..99, cloud node id=100 (last).
-    - Gateways by betweenness centrality: top = CFG, bottom 25% = FG.
-    - Entity attributes: id, IPT, RAM, TB, type (CLOUD|CFG|FG|FOG), model, WATT.
-    - model, WATT: for YAFS energy consumption metric (Stats.get_watt).
-    """
-    random.seed(seed)
-    
     print("Generating topology...")
-    
-    # Generate fog network (nodes 0..99)
-    fog_graph = nx.barabasi_albert_graph(
-        n=topo_cfg.NETWORK_CONFIG["params"]["n"],
-        m=topo_cfg.NETWORK_CONFIG["params"]["m"],
-        seed=seed
-    )
+
+    random.seed(seed)
+    fog_graph = nx.barabasi_albert_graph(n=topo_cfg.NUM_NODES, m=2, seed=seed)
     
     num_fog_nodes = fog_graph.number_of_nodes()
     cloud_id = num_fog_nodes  # 100
     
-    # Gateway selection by betweenness centrality (experimentConfiguration)
+    # Gateway selection by betweenness centrality
     centrality_no_order = nx.betweenness_centrality(fog_graph, weight="weight")
     centrality_sorted = sorted(
         centrality_no_order.items(),
@@ -102,15 +89,6 @@ def generate_topology(seed=42):
 
 
 def generate_applications(seed=42, num_apps=None):
-    """
-    Generate applications aligned with experimentConfiguration and YAFS 3.1:
-    - DAG edges reversed (experimentConfiguration); source = first in topo sort.
-    - Module names: str(i)_str(n) (no zero-pad).
-    - One source message per app: "M.USER.APP.i" (YAFS / experimentConfiguration).
-    - Edge message names: "i_(u-v)".
-    - deadline + MaxLatency for compatibility.
-    - num_apps: override app_cfg.NUM_APPLICATIONS (used by multi-instance runner).
-    """
     random.seed(seed)
 
     total = num_apps if num_apps is not None else app_cfg.NUM_APPLICATIONS
@@ -229,11 +207,6 @@ def generate_applications(seed=42, num_apps=None):
 
 
 def generate_users(topology, applications, seed=42):
-    """
-    Generate exactly 1 IoT source per application, placed at a random FG gateway node.
-    - Only FG (fog gateway) nodes host users [1].
-    - Request rate: 200–1000 ms inter-arrival [1].
-    """
     random.seed(seed)
     
     print(f"Generating users/sources (1 per app)...")
@@ -288,11 +261,6 @@ def generate_users(topology, applications, seed=42):
 
 
 def main():
-    """Main generator function."""
-    print("=" * 60)
-    print("YAFS Scenario Generator")
-    print("=" * 60)
-    
     # Create scenarios directory
     scenarios_dir = Path(__file__).parent.parent / "scenarios"
     scenarios_dir.mkdir(parents=True, exist_ok=True)
@@ -305,24 +273,24 @@ def main():
     topo_file = scenarios_dir / "networkDefinition.json"
     with open(topo_file, 'w') as f:
         json.dump(topology, f, indent=2)
-    print(f"✓ Saved: {topo_file}")
+    print(f"Saved: {topo_file}")
     
     # Generate applications
     applications = generate_applications(seed=SEED)
     app_file = scenarios_dir / "appDefinition.json"
     with open(app_file, 'w') as f:
         json.dump(applications, f, indent=2)
-    print(f"✓ Saved: {app_file}")
+    print(f"Saved: {app_file}")
     
     # Generate users
     users = generate_users(topology, applications, seed=SEED)
     user_file = scenarios_dir / "usersDefinition.json"
     with open(user_file, 'w') as f:
         json.dump(users, f, indent=2)
-    print(f"✓ Saved: {user_file}")
+    print(f"Saved: {user_file}")
     
     print("\n" + "=" * 60)
-    print("Scenario generation complete!")
+    print("Generation completed!")
     print("=" * 60)
     print("\nNext step: Run generate_placements.py to create allocation files.")
 

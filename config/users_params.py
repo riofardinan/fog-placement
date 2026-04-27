@@ -4,10 +4,7 @@ Users/IoT devices configuration parameters for fog computing simulation.
 """
 import random
 
-# ---------------------------------------------------------------------------
-# User/Traffic [1]
-# ---------------------------------------------------------------------------
-# request_interval (ms) — IoT request rate 200–1000 ms [1]
+# request_interval (ms)
 REQUEST_INTERVAL_MIN = 200
 REQUEST_INTERVAL_MAX = 1000
 

@@ -36,28 +36,60 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 # Folder names under each run_* (must match runner/run_experiment.py PLACEMENTS short names)
-DEFAULT_ALGO_ORDER = ["SM", "Hop3", "FFHA", "FFF", "Hop2", "GA", "RDM"]
+DEFAULT_ALGO_ORDER = [
+    "SM", 
+    # "Hop3", 
+    "FFHA", 
+    # "FFF", 
+    # "Hop2", 
+    "GA", 
+    # "RDM"
+    "ACO",
+    "SA",
+    "TS",
+    "PSO",
+    "GWO",
+    "WOA",
+    "NSGA2",
+    "MOEAD",
+]
 
 # Paper-style display names (figure legend)
 DISPLAY_NAMES: Dict[str, str] = {
-    "RDM": "Random",
+    # "RDM": "Random",
     "SM": "SortMatch",
-    "FFHA": "FirstFitHopAware",
-    "FFF": "FrameworkFirstFit",
-    "Hop2": "Hop2",
-    "Hop3": "Hop3",
+    # "FFHA": "FirstFitHopAware",
+    # "FFF": "FrameworkFirstFit",
+    # "Hop2": "Hop2",
+    # "Hop3": "Hop3",
     "GA": "GA",
+    "ACO": "ACO",
+    "SA": "SA",
+    "TS": "TS",
+    "PSO": "PSO",
+    "GWO": "GWO",
+    "WOA": "WOA",
+    "NSGA2": "NSGA2",
+    "MOEAD": "MOEAD",
 }
 
 # Approximate colours/markers to match comparative plots
 STYLE: Dict[str, Tuple[str, str, str]] = {
     "SM": ("#1f77b4", "-", "o"),
-    "Hop3": ("#ff7f0e", "--", "s"),
-    "FFHA": ("#d62728", "-.", "^"),
-    "FFF": ("#8c564b", ":", "d"),
-    "Hop2": ("#e377c2", "-.", "v"),
+    # "Hop3": ("#ff7f0e", "--", "s"),
+    # "FFHA": ("#d62728", "-.", "^"),
+    # "FFF": ("#8c564b", ":", "d"),
+    # "Hop2": ("#e377c2", "-.", "v"),
     "GA": ("#bcbd22", "--", "p"),
-    "RDM": ("#17becf", "-.", "*"),
+    # "RDM": ("#17becf", "-.", "*"),
+    "ACO": ("#17becf", "-.", "*"),
+    "SA": ("#ff7f0e", "-.", "*"),
+    "TS": ("#d62728", "-.", "*"),
+    "PSO": ("#8c564b", "-.", "*"),
+    "GWO": ("#e377c2", "-.", "*"),
+    "WOA": ("#9467bd", "-.", "*"),
+    "NSGA2": ("#ffbb78", "-.", "*"),
+    "MOEAD": ("#7f7f7f", "-.", "*"),
 }
 
 _APPS_DIR = re.compile(r"^apps_(\d+)$")
@@ -288,8 +320,8 @@ def plot_response_components_bar(
     Component values shown inside each bar segment (like paper).
     """
     # X-axis order matching paper Fig. 9
-    fig9_order = ["FFHA", "FFF", "GA", "Hop2", "Hop3", "RDM", "SM"]
-    plot_algos = [a for a in fig9_order if a in algorithms]
+    # fig9_order = ["FFHA", "FFF", "GA", "Hop2", "Hop3", "RDM", "SM"]
+    plot_algos = [a for a in DEFAULT_ALGO_ORDER if a in algorithms]
 
     algo_components: Dict[str, Dict[str, List[float]]] = {
         a: {"service": [], "latency": [], "wait": []} for a in plot_algos

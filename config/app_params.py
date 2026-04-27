@@ -5,27 +5,19 @@ Sequential (linear chain) microservice DAG — Pakpahan et al. (2025) [1].
 import random
 import networkx as nx
 
-# ---------------------------------------------------------------------------
-# Application Profile (Sequential/Chain DAG) [1]
-# ---------------------------------------------------------------------------
-# Number of Applications — varied 5–70 in increments of 5 (14 problem instances) [1]
+# Number of Applications
 NUM_APPLICATIONS = 5
-# Services Per Application Min [1]
+# Services Per Application
 MODULES_PER_APP_MIN = 2
-# Services Per Application Max [1]
 MODULES_PER_APP_MAX = 8
-# Resource Units / RAM
+# RAM (MB RAM)
 RAM_USAGE_MIN = 1
-# Resource Units / RAM
 RAM_USAGE_MAX = 6
 
-# ---------------------------------------------------------------------------
-# Microservice Workload (Uniform Distribution) [2]
-# ---------------------------------------------------------------------------
-# Instructions Per Request (paper packet size affects transmission; instructions for exec)
+# Instructions Per Request
 INSTRUCTIONS_PER_REQ_MIN = 20000
 INSTRUCTIONS_PER_REQ_MAX = 60000
-# Message Size (bytes) — Packet size 1.5 MB – 4.5 MB [1]
+# Message Size (bytes)
 MESSAGE_SIZE_MIN = 1500000
 MESSAGE_SIZE_MAX = 4500000
 # Deadline (ms)
