@@ -13,7 +13,8 @@ class PlacementProblem:
     service_to_app: Dict[int, str]      # idx -> app_id (string)
     service_ram: Dict[int, float]       # idx -> RAM demand
     chains_info: List[Tuple[List[int], int]]  # (service indices in chain order, source gateway node id)
-    fog_nodes: List[int]
+    fog_nodes: List[int]                # candidate fog nodes (excludes cloud)
+    candidate_nodes: List[int]          # fog + cloud (cloud acts as overflow)
     cloud_id: int
     node_ram: Dict[int, float]
     hop_dist: Dict[int, Dict[int, int]]  # hop distances
@@ -35,8 +36,11 @@ def build_problem(topology, applications, users) -> PlacementProblem:
         G.add_edge(link["s"], link["d"])
 
     fog_nodes = [n for n in G.nodes() if n != cloud_id]
+    candidate_nodes = list(fog_nodes) + ([cloud_id] if cloud_id in G.nodes() else [])
+
     node_ram = {n: float(entities[n].get("RAM", 0)) for n in fog_nodes}
-    node_ipt = {n: float(entities[n].get("IPT", 1.0)) for n in fog_nodes}
+    # include cloud IPT too (cloud may be chosen as overflow)
+    node_ipt = {n: float(entities.get(n, {}).get("IPT", 1.0)) for n in candidate_nodes}
 
     prs = [float(l.get("PR", 0.0)) for l in topology.get("link", []) if "PR" in l]
     mean_pr_ms = float(sum(prs) / len(prs)) if prs else 0.0
@@ -75,6 +79,7 @@ def build_problem(topology, applications, users) -> PlacementProblem:
         service_ram=service_ram,
         chains_info=chains_info,
         fog_nodes=fog_nodes,
+        candidate_nodes=candidate_nodes,
         cloud_id=cloud_id,
         node_ram=node_ram,
         hop_dist=hop_dist,
@@ -140,15 +145,15 @@ def fitness_response_proxy(chrom: List[int], prob: PlacementProblem) -> float:
 
 
 def greedy_seed_chrom(prob: PlacementProblem) -> List[int]:
-    """Simple SM-like seed: place modules to highest-IPT nodes with RAM capacity."""
-    if not prob.services or not prob.fog_nodes:
+    """Simple SM-like seed with cloud overflow."""
+    if not prob.services or not prob.fog_nodes or prob.cloud_id is None:
         return []
     ranked = sorted(prob.fog_nodes, key=lambda n: prob.node_ipt.get(n, 0.0), reverse=True)
     caps = {n: float(prob.node_ram.get(n, 0.0)) for n in ranked}
     chrom: List[int] = []
     for i in range(len(prob.services)):
         ram = float(prob.service_ram.get(i, 1.0))
-        chosen = ranked[-1]
+        chosen = prob.cloud_id
         for n in ranked:
             if caps.get(n, 0.0) >= ram:
                 chosen = n
@@ -159,16 +164,16 @@ def greedy_seed_chrom(prob: PlacementProblem) -> List[int]:
 
 
 def random_chrom(prob: PlacementProblem) -> List[int]:
-    if not prob.services or not prob.fog_nodes:
+    if not prob.services or not prob.candidate_nodes:
         return []
-    return [random.choice(prob.fog_nodes) for _ in range(len(prob.services))]
+    return [random.choice(prob.candidate_nodes) for _ in range(len(prob.services))]
 
 
 def mutate_one_gene(chrom: List[int], prob: PlacementProblem) -> List[int]:
     if not chrom:
         return chrom
     i = random.randrange(len(chrom))
-    options = [n for n in prob.fog_nodes if n != chrom[i]]
+    options = [n for n in prob.candidate_nodes if n != chrom[i]]
     if options:
         chrom = list(chrom)
         chrom[i] = random.choice(options)

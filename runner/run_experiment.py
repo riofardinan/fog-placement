@@ -12,7 +12,10 @@ Also writes results/apps_{N}/run_{R}/appDefinition.json (snapshot for analysis/S
 """
 import json
 import sys
+import os
+import argparse
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
@@ -40,7 +43,8 @@ from runner.run_simulation import run_simulation
 # ---------------------------------------------------------------------------
 # Experiment Parameters — Pakpahan et al. (2025) [1]
 # ---------------------------------------------------------------------------
-NUM_APPS_RANGE = list(range(70, 1501, 65))  # [5, 10, 15, ..., 70] — 14 instances
+# NUM_APPS_RANGE = list(range(1100, 1501, 100))  # [5, 10, 15, ..., 70] — 14 instances
+NUM_APPS_RANGE = [100, 500, 1000, 1500]  # [5, 10, 15, ..., 70] — 14 instances
 RUNS_PER_INSTANCE = 10
 SIM_DURATION = 10000
 
@@ -66,9 +70,16 @@ PLACEMENTS = [
 ]
 
 
+def _instance_scenarios_dir(base_scenarios_dir: Path, num_apps: int, run: int) -> Path:
+    return base_scenarios_dir / f"apps_{num_apps}" / f"run_{run}"
+
+
 def run_instance(num_apps, run, scenarios_dir, topology):
     """Generate apps/users, placements, and run all simulations for one instance."""
     seed = num_apps * 100 + run  # varies per (num_apps, run), NOT topology
+
+    scenarios_dir = Path(scenarios_dir)
+    scenarios_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Save shared topology (already generated once in main)
     with open(scenarios_dir / "networkDefinition.json", "w") as f:
@@ -97,7 +108,12 @@ def run_instance(num_apps, run, scenarios_dir, topology):
     for name, _ in PLACEMENTS:
         results_dir = _project_root / "results" / f"apps_{num_apps}" / f"run_{run}" / name
         try:
-            run_simulation(f"{name}Placement", SIM_DURATION, results_dir=results_dir)
+            run_simulation(
+                f"{name}Placement",
+                SIM_DURATION,
+                results_dir=results_dir,
+                scenarios_dir=scenarios_dir,
+            )
         except Exception as e:
             print(f"  ERROR {name}Placement: {e}")
             failed.append(name)
@@ -105,34 +121,125 @@ def run_instance(num_apps, run, scenarios_dir, topology):
     return failed
 
 
+def _worker(task):
+    """
+    Worker entrypoint for multiprocessing (must be top-level for Windows).
+    task: (num_apps, run, base_scenarios_dir, topology)
+    """
+    num_apps, run, base_scenarios_dir, topology = task
+    base_scenarios_dir = Path(base_scenarios_dir)
+    scenarios_dir = _instance_scenarios_dir(base_scenarios_dir, num_apps, run)
+    failed = run_instance(num_apps, run, scenarios_dir, topology)
+    return num_apps, run, failed
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Multi-instance experiment runner")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=max(1, (os.cpu_count() or 1) - 1),
+        help="Number of parallel workers (default: CPU-1)",
+    )
+    parser.add_argument(
+        "--sequential",
+        action="store_true",
+        help="Disable parallelism (debug/fallback)",
+    )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=RUNS_PER_INSTANCE,
+        help="Runs per instance (default from script constant)",
+    )
+    parser.add_argument(
+        "--apps-min",
+        type=int,
+        default=min(NUM_APPS_RANGE),
+        help="Minimum number of apps (inclusive)",
+    )
+    parser.add_argument(
+        "--apps-max",
+        type=int,
+        default=max(NUM_APPS_RANGE),
+        help="Maximum number of apps (inclusive)",
+    )
+    parser.add_argument(
+        "--apps-step",
+        type=int,
+        default=(NUM_APPS_RANGE[1] - NUM_APPS_RANGE[0]) if len(NUM_APPS_RANGE) > 1 else 100,
+        help="Step for number of apps",
+    )
+    args = parser.parse_args()
+
     scenarios_dir = _project_root / "scenarios"
     scenarios_dir.mkdir(exist_ok=True)
 
-    total = len(NUM_APPS_RANGE) * RUNS_PER_INSTANCE
-    done = 0
+    # If the CLI range args are untouched, preserve the explicit app counts
+    # from NUM_APPS_RANGE instead of inferring an arithmetic progression.
+    default_apps_min = min(NUM_APPS_RANGE)
+    default_apps_max = max(NUM_APPS_RANGE)
+    default_apps_step = (NUM_APPS_RANGE[1] - NUM_APPS_RANGE[0]) if len(NUM_APPS_RANGE) > 1 else 100
+    using_default_range_args = (
+        args.apps_min == default_apps_min
+        and args.apps_max == default_apps_max
+        and args.apps_step == default_apps_step
+    )
+    num_apps_range = (
+        list(NUM_APPS_RANGE)
+        if using_default_range_args
+        else list(range(args.apps_min, args.apps_max + 1, args.apps_step))
+    )
+    runs_per_instance = args.runs
+
     all_failed = []
 
     print("=" * 60)
     print("Multi-Instance Experiment Runner")
-    print(f"  Instances : {len(NUM_APPS_RANGE)} ({NUM_APPS_RANGE[0]}–{NUM_APPS_RANGE[-1]} apps, step 5)")
-    print(f"  Runs each : {RUNS_PER_INSTANCE}")
-    print(f"  Total     : {total}")
+    print(f"  Instances : {len(num_apps_range)} ({num_apps_range[0]}–{num_apps_range[-1]} apps, step {args.apps_step})")
+    print(f"  Runs each : {runs_per_instance}")
     print(f"  Duration  : {SIM_DURATION} time units")
     print(f"  Topo seed : {TOPOLOGY_SEED} (fixed for all runs)")
+    if args.sequential:
+        print("  Mode      : sequential")
+    else:
+        print(f"  Mode      : parallel (jobs={args.jobs})")
     print("=" * 60)
 
     # Generate topology ONCE — shared across all 140 simulations
     print(f"\nGenerating shared topology (seed={TOPOLOGY_SEED})...")
     topology = generate_topology(seed=TOPOLOGY_SEED)
 
-    for num_apps in NUM_APPS_RANGE:
-        for run in range(1, RUNS_PER_INSTANCE + 1):
+    tasks = []
+    for num_apps in num_apps_range:
+        for run in range(1, runs_per_instance + 1):
+            tasks.append((num_apps, run, str(scenarios_dir), topology))
+
+    total = len(tasks)
+    if args.sequential or args.jobs <= 1:
+        done = 0
+        for num_apps, run, base_scenarios_dir, topology in tasks:
             done += 1
+            instance_dir = _instance_scenarios_dir(Path(base_scenarios_dir), num_apps, run)
             print(f"\n[{done}/{total}] apps={num_apps}, run={run}")
-            failed = run_instance(num_apps, run, scenarios_dir, topology)
+            failed = run_instance(num_apps, run, instance_dir, topology)
             if failed:
                 all_failed.append((num_apps, run, failed))
+    else:
+        done = 0
+        with ProcessPoolExecutor(max_workers=args.jobs) as ex:
+            future_map = {ex.submit(_worker, t): t[:2] for t in tasks}
+            for fut in as_completed(future_map):
+                num_apps, run = future_map[fut]
+                done += 1
+                try:
+                    num_apps, run, failed = fut.result()
+                    print(f"\n[{done}/{total}] DONE apps={num_apps}, run={run}")
+                    if failed:
+                        all_failed.append((num_apps, run, failed))
+                except Exception as e:
+                    print(f"\n[{done}/{total}] ERROR apps={num_apps}, run={run}: {e}")
+                    all_failed.append((num_apps, run, ["__WORKER_FAILED__"]))
 
     print("\n" + "=" * 60)
     print("Experiment Complete!")

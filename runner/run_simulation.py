@@ -25,7 +25,7 @@ from runner.json_population import JSONPopulation
 from runner.path_routing import create_routing_strategy
 
 
-def load_scenario(scenarios_dir):
+def load_scenario(scenarios_dir: Path):
     """Load all scenario files."""
     with open(scenarios_dir / "networkDefinition.json") as f:
         topology_data = json.load(f)
@@ -39,7 +39,7 @@ def load_scenario(scenarios_dir):
     return topology_data, applications_data, users_data
 
 
-def load_placement(scenarios_dir, placement_name):
+def load_placement(scenarios_dir: Path, placement_name: str):
     """Load placement allocation file."""
     alloc_name = placement_name.replace("Placement", "")
     alloc_file = scenarios_dir / f"allocDefinition{alloc_name}.json"
@@ -58,7 +58,13 @@ def load_placement(scenarios_dir, placement_name):
     return placement_data
 
 
-def run_simulation(placement_name, stop_time=20000, routing: str = "device_speed", results_dir=None):
+def run_simulation(
+    placement_name: str,
+    stop_time: int = 20000,
+    routing: str = "device_speed",
+    results_dir=None,
+    scenarios_dir=None,
+):
     """
     Run simulation with specified placement algorithm.
 
@@ -67,6 +73,7 @@ def run_simulation(placement_name, stop_time=20000, routing: str = "device_speed
         stop_time: Simulation duration in time units
         routing: Path routing strategy
         results_dir: Override output directory (used by multi-instance runner)
+        scenarios_dir: Override scenarios directory (used by multi-instance runner)
     """
     print("=" * 60)
     print(f"Running YAFS Simulation: {placement_name}")
@@ -74,7 +81,9 @@ def run_simulation(placement_name, stop_time=20000, routing: str = "device_speed
 
     # Paths
     project_root = Path(__file__).parent.parent
-    scenarios_dir = project_root / "scenarios"
+    if scenarios_dir is None:
+        scenarios_dir = project_root / "scenarios"
+    scenarios_dir = Path(scenarios_dir)
     if results_dir is None:
         results_dir = project_root / "results" / placement_name
     results_dir = Path(results_dir)
@@ -178,11 +187,17 @@ def main():
         choices=["device_speed", "weighted_latency", "load_aware"],
         help="Path routing strategy to use",
     )
+    parser.add_argument(
+        "--scenarios-dir",
+        type=str,
+        default=None,
+        help="Path to scenario directory (defaults to ./scenarios)",
+    )
     
     args = parser.parse_args()
 
     try:
-        run_simulation(args.placement, args.duration, args.routing)
+        run_simulation(args.placement, args.duration, args.routing, scenarios_dir=args.scenarios_dir)
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback

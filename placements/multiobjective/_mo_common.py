@@ -7,8 +7,8 @@ from typing import List, Tuple
 from placements.metaheuristic._common import (
     PlacementProblem,
     build_problem,
-    evaluate_hops,
     evaluate_ram_valid,
+    fitness_response_proxy,
     mutate_one_gene,
     random_chrom,
 )
@@ -16,20 +16,22 @@ from placements.metaheuristic._common import (
 
 @dataclass(frozen=True)
 class Objectives:
-    hops: int
+    resp_cost: float  # proxy response cost (lower is better)
     invalid: int  # 0 if valid, 1 if invalid
 
 
 def objectives(chrom: List[int], prob: PlacementProblem) -> Objectives:
     return Objectives(
-        hops=evaluate_hops(chrom, prob),
+        resp_cost=float(-fitness_response_proxy(chrom, prob)),
         invalid=0 if evaluate_ram_valid(chrom, prob) else 1,
     )
 
 
 def dominates(a: Objectives, b: Objectives) -> bool:
     """Minimize both objectives."""
-    return (a.hops <= b.hops and a.invalid <= b.invalid) and (a.hops < b.hops or a.invalid < b.invalid)
+    return (a.resp_cost <= b.resp_cost and a.invalid <= b.invalid) and (
+        a.resp_cost < b.resp_cost or a.invalid < b.invalid
+    )
 
 
 def fast_non_dominated_sort(pop: List[List[int]], prob: PlacementProblem):
@@ -70,14 +72,14 @@ def crowding_distance(front: List[int], objs: List[Objectives]):
         return {}
     dist = {i: 0.0 for i in front}
 
-    # objective 1: hops
-    front_sorted = sorted(front, key=lambda i: objs[i].hops)
+    # objective 1: response cost
+    front_sorted = sorted(front, key=lambda i: objs[i].resp_cost)
     dist[front_sorted[0]] = dist[front_sorted[-1]] = float("inf")
-    minv, maxv = objs[front_sorted[0]].hops, objs[front_sorted[-1]].hops
+    minv, maxv = objs[front_sorted[0]].resp_cost, objs[front_sorted[-1]].resp_cost
     denom = (maxv - minv) or 1.0
     for k in range(1, len(front_sorted) - 1):
-        prevv = objs[front_sorted[k - 1]].hops
-        nextv = objs[front_sorted[k + 1]].hops
+        prevv = objs[front_sorted[k - 1]].resp_cost
+        nextv = objs[front_sorted[k + 1]].resp_cost
         dist[front_sorted[k]] += (nextv - prevv) / denom
 
     # objective 2: invalid
@@ -97,7 +99,7 @@ def pick_best_by_scalar(pop: List[List[int]], prob: PlacementProblem) -> List[in
     """
     Convert Pareto set to single choice for simulator:
     - prioritize valid (invalid=0)
-    - then minimize hops
+    - then minimize response cost proxy
     """
     best = None
     best_obj = None
@@ -106,7 +108,7 @@ def pick_best_by_scalar(pop: List[List[int]], prob: PlacementProblem) -> List[in
         if best is None:
             best, best_obj = c, o
             continue
-        if o.invalid < best_obj.invalid or (o.invalid == best_obj.invalid and o.hops < best_obj.hops):
+        if o.invalid < best_obj.invalid or (o.invalid == best_obj.invalid and o.resp_cost < best_obj.resp_cost):
             best, best_obj = c, o
     return list(best)
 

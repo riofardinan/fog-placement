@@ -45,7 +45,7 @@ class GWOPlacement(Placement):
             random.seed(self.seed)
 
         prob = build_problem(topology, applications, users)
-        if not prob.services or not prob.fog_nodes:
+        if not prob.services or not prob.candidate_nodes:
             return []
 
         pop = [greedy_seed_chrom(prob)] + [random_chrom(prob) for _ in range(self.wolves - 1)]

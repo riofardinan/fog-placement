@@ -59,7 +59,7 @@ class TSPlacement(Placement):
 
             for _k in range(self.neighbors_per_iter):
                 i = random.randrange(len(x))
-                options = [n for n in prob.fog_nodes if n != x[i]]
+                options = [n for n in prob.candidate_nodes if n != x[i]]
                 if not options:
                     continue
                 new_node = random.choice(options)

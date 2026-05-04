@@ -46,7 +46,7 @@ class NSGAIIPlacement(Placement):
             random.seed(self.seed)
 
         prob = build_problem(topology, applications, users)
-        if not prob.services or not prob.fog_nodes:
+        if not prob.services or not prob.candidate_nodes:
             return []
 
         pop = [random_chrom(prob) for _ in range(self.pop_size)]

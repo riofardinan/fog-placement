@@ -47,7 +47,7 @@ class WOAPlacement(Placement):
             random.seed(self.seed)
 
         prob = build_problem(topology, applications, users)
-        if not prob.services or not prob.fog_nodes:
+        if not prob.services or not prob.candidate_nodes:
             return []
 
         pop = [greedy_seed_chrom(prob)] + [random_chrom(prob) for _ in range(self.whales - 1)]
@@ -74,7 +74,7 @@ class WOAPlacement(Placement):
                     # exploration: randomize a few genes
                     for _k in range(max(1, len(child) // 20)):
                         i = random.randrange(len(child))
-                        child[i] = random.choice(prob.fog_nodes)
+                        child[i] = random.choice(prob.candidate_nodes)
 
                 if random.random() < self.mutation_prob:
                     child = mutate_one_gene(child, prob)

@@ -51,3 +51,6 @@ analysis/*.csv
 # OS
 .DS_Store
 Thumbs.db
+
+YAFS/
+scenarios/

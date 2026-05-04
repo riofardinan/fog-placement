@@ -45,7 +45,7 @@ class MOEADPlacement(Placement):
             random.seed(self.seed)
 
         prob = build_problem(topology, applications, users)
-        if not prob.services or not prob.fog_nodes:
+        if not prob.services or not prob.candidate_nodes:
             return []
 
         # weight vectors along line w1+w2=1

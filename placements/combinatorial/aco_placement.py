@@ -45,11 +45,11 @@ class ACOPlacement(Placement):
 
         prob = build_problem(topology, applications, users)
         n = len(prob.services)
-        if n == 0 or not prob.fog_nodes:
+        if n == 0 or not prob.candidate_nodes:
             return []
 
         # tau per gene per node
-        tau: List[Dict[int, float]] = [{node: 1.0 for node in prob.fog_nodes} for _ in range(n)]
+        tau: List[Dict[int, float]] = [{node: 1.0 for node in prob.candidate_nodes} for _ in range(n)]
 
         best = None
         fbest = None
@@ -70,7 +70,7 @@ class ACOPlacement(Placement):
 
             # evaporate
             for i in range(n):
-                for node in prob.fog_nodes:
+                for node in prob.candidate_nodes:
                     tau[i][node] *= (1.0 - self.rho)
                     if tau[i][node] < 1e-9:
                         tau[i][node] = 1e-9
@@ -109,7 +109,7 @@ class ACOPlacement(Placement):
         seed = greedy_seed_chrom(prob)
         for i in range(len(prob.services)):
             weights = []
-            nodes = prob.fog_nodes
+            nodes = prob.candidate_nodes
 
             # heuristic based on hop from last node in its chain (if applicable)
             ci = None
@@ -121,7 +121,7 @@ class ACOPlacement(Placement):
                 if ci is None:
                     eta = 1.0
                 else:
-                    prev_node = last_node_for_chain.get(ci, prob.fog_nodes[0])
+                    prev_node = last_node_for_chain.get(ci, prob.candidate_nodes[0])
                     hop = prob.hop_dist.get(prev_node, {}).get(node, 100)
                     # response proxy: hops*PR + inst/IPT (scaled into heuristic)
                     ipt = float(prob.node_ipt.get(node, 1.0)) or 1.0
